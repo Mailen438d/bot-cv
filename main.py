@@ -22,7 +22,7 @@ bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 client = AsyncGroq(api_key=GROQ_API_KEY)
 
-# --- SERVIDOR FALSO PARA RENDER (Evita que apague el bot) ---
+# --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
 @app.route('/')
 def home(): return "✅ Bot Multipropósito encendido 24/7"
@@ -32,15 +32,17 @@ def run_flask():
 def keep_alive():
     t = threading.Thread(target=run_flask)
     t.start()
-# -----------------------------------------------------------
+# ----------------------------------
 
-# Memoria temporal (Base de datos en RAM)
 usuarios = {}
 
-# --- ESTADOS PARA EL SIMULADOR DE ENTREVISTAS ---
+# --- ESTADOS ---
 class Entrevista(StatesGroup):
     esperando_puesto = State()
     en_progreso = State()
+
+class BuscadorEmpleo(StatesGroup):
+    esperando_palabra = State()
 
 # --- MENÚ PRINCIPAL ---
 def menu_principal():
@@ -61,8 +63,8 @@ async def start(msg: Message):
     
     texto = (
         "¡Hola! 💼 Soy tu **Asistente de Carrera Profesional con IA**.\n\n"
-        "Selecciona una opción del menú para empezar. Tienes **2 usos gratuitos** en total.\n"
-        "Si quieres acceso ilimitado a todas las herramientas, hazte Premium."
+        "Selecciona una opción del menú para empezar. Tienes **2 usos gratuitos**.\n"
+        "Si quieres acceso ilimitado, hazte Premium."
     )
     await msg.answer(texto, reply_markup=menu_principal(), parse_mode="Markdown")
 
@@ -84,7 +86,8 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("🎤 ¿Para qué puesto quieres que te entreviste? (Ej: Desarrollador Web, Gerente de Ventas)")
         await state.set_state(Entrevista.esperando_puesto)
     elif accion == "empleos":
-        await buscar_empleos(callback.message)
+        await callback.message.answer("💼 ¿Qué tipo de empleo estás buscando? (Ej: Programador, Marketing, Soporte al cliente, Diseño).\n\nEscribe la palabra clave:")
+        await state.set_state(BuscadorEmpleo.esperando_palabra)
     elif accion == "premium":
         await cobrar_usuario(uid)
 
@@ -101,10 +104,38 @@ async def verificar_uso(message: Message):
         await cobrar_usuario(uid)
         return False
 
+# --- BUSCADOR DE EMPLEOS REAL (PERSONALIZADO) ---
+@dp.message(BuscadorEmpleo.esperando_palabra)
+async def buscar_empleos_personalizado(msg: Message, state: FSMContext):
+    if not await verificar_uso(msg): 
+        await state.clear()
+        return
+        
+    palabra = msg.text
+    await msg.answer(f"🔎 Buscando ofertas de **{palabra}** a nivel mundial...")
+    await state.clear()
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # La API de Remotive acepta el parámetro "search"
+            response = await http_client.get(f"https://remotive.com/api/remote-jobs?limit=10&search={palabra}")
+            data = response.json()
+            
+            if not data.get("jobs"):
+                await msg.answer("No encontré ofertas para esa palabra. Intenta con otra (ej: developer, sales, support).")
+                return
+                
+            # Enviamos los primeros 10 empleos encontrados
+            for job in data["jobs"][:10]:
+                texto = f"💼 **{job['title']}**\n🏢 {job['company_name']}\n📍 {job['candidate_required_location']}\n🔗 [Aplicar aquí]({job['url']})"
+                await msg.answer(texto, parse_mode="Markdown", disable_web_page_preview=True)
+                
+    except Exception as e:
+        await msg.answer(f"Error al buscar empleos. Intenta de nuevo.")
+
 # --- LÓGICA DE TEXTO (CV Y CARTAS) ---
 @dp.message(F.text & ~F.text.startswith("/"))
 async def procesar_texto_general(msg: Message, state: FSMContext):
-    # Si está en medio de una entrevista, derivamos al manejador de entrevista
     current_state = await state.get_state()
     if current_state == Entrevista.en_progreso.state:
         await responder_entrevista(msg, state)
@@ -113,7 +144,6 @@ async def procesar_texto_general(msg: Message, state: FSMContext):
     if not await verificar_uso(msg): return
 
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
-    # (Lógica simple: si el texto es corto asume que es oferta, si es largo asume CV)
     try:
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -144,7 +174,7 @@ async def procesar_pdf(msg: Message):
         
         reader = PdfReader(io.BytesIO(file_bytes.read()))
         texto = ""
-        for page in reader.pages[:5]: # Leer máximo 5 páginas para no saturar la IA
+        for page in reader.pages[:5]:
             texto += page.extract_text() or ""
 
         if not texto:
@@ -160,7 +190,7 @@ async def procesar_pdf(msg: Message):
         )
         await msg.answer(response.choices[0].message.content[:4000], parse_mode="Markdown")
     except Exception as e:
-        await msg.answer(f"Error al procesar el PDF: {e}")
+        await msg.answer(f"Error al procesar el PDF.")
 
 # --- SIMULADOR DE ENTREVISTA ---
 @dp.message(Entrevista.esperando_puesto)
@@ -178,11 +208,9 @@ async def responder_entrevista(msg: Message, state: FSMContext):
     historial = datos.get("historial", [])
     
     historial.append({"role": "user", "content": msg.text})
-    
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     
     try:
-        # Le pasamos todo el historial para que la IA recuerde la conversación
         messages = [{"role": "system", "content": f"Eres un entrevistador de RRHH. Estás entrevistando a alguien para el puesto de {datos['puesto']}. Evalúa la respuesta del candidato brevemente y haz la siguiente pregunta."}] + historial
         
         response = await client.chat.completions.create(
@@ -202,28 +230,7 @@ async def responder_entrevista(msg: Message, state: FSMContext):
     except Exception as e:
         await msg.answer("Error en la entrevista.")
 
-# --- BUSCADOR DE EMPLEOS REAL ---
-async def buscar_empleos(message: Message):
-    await message.answer("🔎 Buscando ofertas de trabajo remoto en el mundo...")
-    
-    try:
-        async with httpx.AsyncClient() as http_client:
-            # Usamos la API gratuita de Remotive
-            response = await http_client.get("https://remotive.com/api/remote-jobs?limit=5")
-            data = response.json()
-            
-            if not data.get("jobs"):
-                await message.answer("No se encontraron empleos en este momento.")
-                return
-                
-            for job in data["jobs"][:5]:
-                texto = f"💼 **{job['title']}**\n🏢 {job['company_name']}\n📍 {job['candidate_required_location']}\n🔗 [Aplicar aquí]({job['url']})"
-                await message.answer(texto, parse_mode="Markdown", disable_web_page_preview=True)
-                
-    except Exception as e:
-        await message.answer(f"Error al buscar empleos: {e}")
-
-# --- SISTEMA DE COBRO (PREMIUM) ---
+# --- SISTEMA DE COBRO ---
 async def cobrar_usuario(uid):
     await bot.send_invoice(
         chat_id=uid,
@@ -232,7 +239,7 @@ async def cobrar_usuario(uid):
         payload="premium_unlimited",
         provider_token="", 
         currency="XTR",    
-        prices=[LabeledPrice(label="Premium", amount=300)] # 300 Stars
+        prices=[LabeledPrice(label="Premium", amount=300)]
     )
 
 @dp.pre_checkout_query()
@@ -243,20 +250,8 @@ async def pre_checkout(query: PreCheckoutQuery):
 async def pago_exitoso(msg: Message):
     uid = msg.from_user.id
     usuarios[uid]["pago_activo"] = True
-    usuarios[uid]["usos_gratis"] = 9999 # Ilimitado
-    await msg.answer("¡Pago recibido! 🎉 Ya eres **Premium**. Tienes acceso ilimitado a todo el menú.", reply_markup=menu_principal())
-
-# --- COMANDO ADMIN (Opcional) ---
-@dp.message(Command("admin"))
-async def admin(msg: Message):
-    # PON TU ID DE TELEGRAM AQUÍ (Búscalo en @userinfobot)
-    MI_ID = 123456789 
-    if msg.from_user.id == MI_ID:
-        total = len(usuarios)
-        premium = sum(1 for u in usuarios.values() if u.get("pago_activo"))
-        await msg.answer(f"📊 **Stats:**\nUsuarios: {total}\nPremium: {premium}")
-    else:
-        await msg.answer("No tienes permiso.")
+    usuarios[uid]["usos_gratis"] = 9999
+    await msg.answer("¡Pago recibido! 🎉 Ya eres **Premium**. Tienes acceso ilimitado.", reply_markup=menu_principal())
 
 async def main():
     print("✅ Súper Bot encendido y listo para operar...")
