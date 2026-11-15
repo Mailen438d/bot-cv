@@ -53,13 +53,12 @@ class BuscadorEmpleo(StatesGroup):
 class AdminChat(StatesGroup):
     en_progreso = State()
 
-# --- 🛡️ FUNCIÓN MAESTRA PARA ENVIAR MENSAJES SEGUROS (EVITA ERRORES DE FORMATO) ---
+# --- 🛡️ FUNCIÓN MAESTRA PARA ENVIAR MENSAJES SEGUROS ---
 async def enviar_mensaje_seguro(chat_id, texto):
     texto_cortado = texto[:4000]
     try:
         await bot.send_message(chat_id=chat_id, text=texto_cortado, parse_mode="Markdown")
     except Exception:
-        # Si Telegram falla por un error de negrita/enlace, envía el texto plano
         await bot.send_message(chat_id=chat_id, text=texto_cortado)
 
 # --- MENÚ PRINCIPAL ---
@@ -109,9 +108,14 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
     elif accion == "premium":
         await cobrar_usuario(uid)
 
-# --- FUNCIÓN PARA VERIFICAR PAGOS ---
+# --- 🛡️ FUNCIÓN DE VERIFICACIÓN BLINDADA ---
 async def verificar_uso(message: Message):
     uid = message.from_user.id
+    
+    # ESTA ES LA CORRECCIÓN: Si el usuario no existe (ej. el bot se reinició), lo creamos.
+    if uid not in usuarios:
+        usuarios[uid] = {"pago_activo": False, "usos_gratis": 2}
+        
     if usuarios[uid]["pago_activo"]: return True
     
     if usuarios[uid]["usos_gratis"] > 0:
