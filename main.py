@@ -35,7 +35,7 @@ ADMIN_ID = 6643605796
 # --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "✅ Súper Bot encendido 24/7"
+def home(): return "✅ Bot encendido"
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
@@ -142,31 +142,31 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         idioma = usuario['idioma'] if usuario and usuario['idioma'] else "es"
 
     if accion == "cv":
-        await callback.message.answer("📄 Envíame el **texto de tu CV**, un **PDF** o una **nota de voz**." if idioma == "es" else "📄 Send me your **Resume text**, a **PDF**, or a **voice note**.")
+        await callback.message.answer("📄 Envíame el **texto de tu CV**, un **PDF** o una **nota de voz**.")
         await state.set_state(Herramientas.esperando_cv)
     elif accion == "carta":
-        await callback.message.answer("✉️ Envíame la **oferta de trabajo** y te escribiré una carta." if idioma == "es" else "✉️ Send me the **job offer** and I'll write a cover letter.")
+        await callback.message.answer("✉️ Envíame la **oferta de trabajo** y te escribiré una carta.")
         await state.set_state(Herramientas.esperando_carta)
     elif accion == "estafa":
-        await callback.message.answer("🕵️ Pega el mensaje de la oferta y te diré si es real o estafa." if idioma == "es" else "🕵️ Paste the job offer message and I'll tell you if it's a scam.")
+        await callback.message.answer("🕵️ Pega el mensaje de la oferta y te diré si es real o estafa.")
         await state.set_state(Herramientas.esperando_estafa)
     elif accion == "cold_email":
-        await callback.message.answer("🚀 Pega la oferta o el perfil del reclutador." if idioma == "es" else "🚀 Paste the offer or recruiter profile.")
+        await callback.message.answer("🚀 Pega la oferta o el perfil del reclutador.")
         await state.set_state(Herramientas.esperando_cold_email)
     elif accion == "linkedin":
-        await callback.message.answer("💼 Pega tu perfil de LinkedIn." if idioma == "es" else "💼 Paste your LinkedIn profile.")
+        await callback.message.answer("💼 Pega tu perfil de LinkedIn.")
         await state.set_state(Herramientas.esperando_linkedin)
     elif accion == "pdf":
-        await callback.message.answer("📑 Pega el texto de tu CV y lo convertiré en un PDF profesional en segundos." if idioma == "es" else "📑 Paste your Resume text and I'll turn it into a professional PDF.")
+        await callback.message.answer("📑 Pega el texto de tu CV y lo convertiré en un PDF profesional.")
         await state.set_state(Herramientas.esperando_pdf)
     elif accion == "adaptar":
-        await callback.message.answer("🌍 ¿A qué país quieres adaptar tu CV? (Ej: Canadá, España, USA, Alemania)" if idioma == "es" else "🌍 Which country do you want to adapt your Resume to?")
+        await callback.message.answer("🌍 ¿A qué país quieres adaptar tu CV? (Ej: Canadá, España, USA, Alemania)")
         await state.set_state(Herramientas.esperando_pais_adaptar)
     elif accion == "entrevista":
-        await callback.message.answer("🎤 ¿Para qué puesto quieres que te entreviste?" if idioma == "es" else "🎤 For what position do you want to be interviewed?")
+        await callback.message.answer("🎤 ¿Para qué puesto quieres que te entreviste?")
         await state.set_state(Entrevista.esperando_puesto)
     elif accion == "empleos":
-        await callback.message.answer("🔍 ¿Qué tipo de empleo buscas? (Ej: Programador, Ventas)" if idioma == "es" else "🔍 What kind of job are you looking for?")
+        await callback.message.answer("🔍 ¿Qué tipo de empleo buscas? (Ej: Programador, Ventas)")
         await state.set_state(BuscadorEmpleo.esperando_palabra)
     elif accion == "vip":
         await cobrar_alerta_vip(uid)
@@ -177,11 +177,7 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         link = f"https://t.me/{bot_info.username}?start={uid}"
         await callback.message.answer(f"🎁 **Invita y gana**\n\n+3 usos por cada amigo:\n`{link}`", parse_mode="Markdown")
     elif accion == "info":
-        info_texto = (
-            "ℹ️ **Información de las Herramientas**\n\n📄 **Analizar CV:** La IA revisa tu CV y te da consejos.\n✉️ **Carta:** Escribe una carta adaptada a una oferta.\n🎤 **Entrevista:** Simula una entrevista con la IA.\n🕵️ **Estafas:** Detecta ofertas fraudulentas.\n🚀 **Cold Email:** Mensaje para reclutadores en LinkedIn.\n💼 **LinkedIn:** Mejora tu perfil.\n📑 **PDF:** Descarga tu CV en formato profesional.\n🌍 **Adaptar:** Cambia tu CV al formato de otro país.\n🔍 **Buscar:** Ofertas remotas reales.\n🔔 **VIP:** Ofertas diarias.\n⭐ **PRO:** Desbloquea TODO por 2 meses."
-        ) if idioma == "es" else (
-            "ℹ️ **Tools Information**\n\n📄 **Analyze Resume:** AI reviews your resume.\n✉️ **Cover Letter:** Writes a letter for a job.\n🎤 **Simulator:** Practice interview.\n🕵️ **Scams:** Detects fraudulent offers.\n🚀 **Cold Email:** LinkedIn message.\n💼 **LinkedIn:** Improves profile.\n📑 **PDF:** Professional resume download.\n🌍 **Adapt:** Formats for another country.\n🔍 **Find Jobs:** Real remote offers.\n🔔 **VIP:** Daily alerts.\n⭐ **PRO:** Unlock ALL for 2 months."
-        )
+        info_texto = "ℹ️ **Información**\n\nUsa el menú para analizar tu CV, crear cartas, buscar empleos y más."
         await callback.message.answer(info_texto, parse_mode="Markdown")
     elif accion == "idioma":
         nuevo_idioma = "en" if idioma == "es" else "es"
@@ -189,16 +185,13 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
             await conn.execute("UPDATE usuarios SET idioma = $1 WHERE user_id = $2", nuevo_idioma, uid)
         await callback.message.answer("Language changed to English 🇬🇧" if nuevo_idioma == "en" else "Idioma cambiado a Español 🇪🇸", reply_markup=menu_principal(nuevo_idioma))
 
-# --- VERIFICACIÓN DE PAGOS (CON PROTECCIÓN DE COLUMNAS) ---
 async def verificar_uso(message: Message, herramienta: str):
     uid = message.from_user.id
     async with db_pool.acquire() as conn:
         usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
         
-        # PROTECCIÓN: Si la columna pro_expira no existe en el registro, la ignoramos
         if 'pro_expira' in usuario.keys() and usuario['pro_expira']:
-            if usuario['pro_expira'] > datetime.now():
-                return True
+            if usuario['pro_expira'] > datetime.now(): return True
             
         columna = f"pago_{herramienta}"
         if columna in usuario.keys() and usuario[columna]: return True
@@ -206,13 +199,12 @@ async def verificar_uso(message: Message, herramienta: str):
         if usuario['usos_gratis'] > 0:
             nuevos = usuario['usos_gratis'] - 1
             await conn.execute("UPDATE usuarios SET usos_gratis = $1 WHERE user_id = $2", nuevos, uid)
-            await message.answer(f"*(Te quedan {nuevos} usos gratis / {nuevos} free uses left)*", parse_mode="Markdown")
+            await message.answer(f"*(Te quedan {nuevos} usos gratis)*", parse_mode="Markdown")
             return True
         else:
             await cobrar_herramienta_individual(uid, herramienta)
             return False
 
-# --- CREACIÓN DEL PDF ---
 def crear_pdf(texto_cv):
     pdf = FPDF()
     pdf.add_page()
@@ -223,7 +215,6 @@ def crear_pdf(texto_cv):
     pdf.output(ruta_pdf)
     return ruta_pdf
 
-# --- PROCESAMIENTO DE IA ---
 async def procesar_con_ia(msg: Message, texto: str, herramienta: str, extra_data=None):
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     try:
@@ -231,13 +222,12 @@ async def procesar_con_ia(msg: Message, texto: str, herramienta: str, extra_data
             "cv": "Analiza este CV y da consejos.",
             "carta": "Escribe una carta de presentación para esta oferta.",
             "estafa": "Analiza si esta oferta es una estafa. Sé contundente.",
-            "cold_email": "Escribe un mensaje corto para LinkedIn sobre esta oferta/perfil.",
-            "linkedin": "Reescribe este texto de LinkedIn para hacerlo más profesional.",
-            "pdf": "Reescribe este CV de forma profesional, ordenada y lista para imprimir.",
-            "adaptar": f"Adapta este CV al formato estándar de {extra_data}. Si el idioma del país es otro, traduce el CV.",
+            "cold_email": "Escribe un mensaje corto para LinkedIn.",
+            "linkedin": "Reescribe este texto de LinkedIn para hacerlo profesional.",
+            "pdf": "Reescribe este CV de forma profesional para imprimir.",
+            "adaptar": f"Adapta este CV al formato de {extra_data}.",
             "admin": "Estás hablando con el creador. Responde técnico."
         }
-        
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=[{"role": "system", "content": prompts.get(herramienta, prompts["cv"])}, {"role": "user", "content": texto}]
@@ -246,7 +236,6 @@ async def procesar_con_ia(msg: Message, texto: str, herramienta: str, extra_data
     except Exception as e:
         return f"Error con la IA: {e}"
 
-# --- MANEJADOR DE TEXTOS ---
 @dp.message(F.text & ~F.text.startswith("/"))
 async def manejar_texto(msg: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -321,7 +310,6 @@ async def manejar_texto(msg: Message, state: FSMContext):
         res = await procesar_con_ia(msg, msg.text, "cv")
         await enviar_mensaje_seguro(uid, res)
 
-# --- AUDIOS ---
 @dp.message(F.voice)
 async def manejar_audio(msg: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -347,13 +335,11 @@ async def manejar_audio(msg: Message, state: FSMContext):
     except Exception as e:
         await msg.answer(f"❌ Error audio: {e}")
 
-# --- BUSCADOR ---
 async def buscar_empleos(msg: Message, state: FSMContext):
     pais = msg.text.lower()
     datos = await state.get_data()
     palabra = datos.get("busqueda", "").lower()
     await state.clear()
-    
     await msg.answer(f"🔎 Buscando **{palabra}**...")
     enc = 0
     try:
@@ -373,7 +359,6 @@ async def buscar_empleos(msg: Message, state: FSMContext):
         if enc == 0: await msg.answer("😔 Sin resultados exactos. Prueba en inglés.")
     except: await msg.answer("❌ Error buscador.")
 
-# --- COBROS ---
 async def cobrar_herramienta_individual(uid, herramienta):
     titulos = {"cv": "CV", "carta": "Carta", "entrevista": "Entrevista", "estafa": "Estafas", "cold_email": "Cold Email", "linkedin": "LinkedIn", "pdf": "CV en PDF", "adaptar": "Adaptar CV"}
     await bot.send_message(uid, f"⚠️ Sin usos gratis. Compra **{titulos.get(herramienta, 'esto')}** por 150 Stars o el PASE PRO.", parse_mode="Markdown")
@@ -406,7 +391,6 @@ async def pago_exitoso(msg: Message):
             await conn.execute(f"UPDATE usuarios SET pago_{h} = TRUE WHERE user_id = $1", uid)
             await msg.answer(f"🎉 Herramienta desbloqueada con éxito.")
 
-# --- RESTANTES ---
 async def guardar_alerta_vip(msg: Message, state: FSMContext):
     ubicacion = msg.text
     datos = await state.get_data()
@@ -462,14 +446,17 @@ async def responder_entrevista(msg: Message, state: FSMContext):
             await state.update_data(pregunta_num=num + 1, historial=hist)
     except: await msg.answer("Error.")
 
-# --- INICIALIZACIÓN (AQUÍ ESTÁ EL ARREGLO DE LA BASE DE DATOS) ---
+# --- INICIALIZACIÓN (CON TIMEOUT PARA EVITAR CONGELAMIENTO) ---
 async def main():
     global db_pool
+    
     while True:
         try:
-            db_pool = await asyncpg.create_pool(DATABASE_URL)
+            print("🔄 Intentando conectar a PostgreSQL...", flush=True)
+            # Añadimos un timeout de 15 segundos para que no se quede colgado para siempre
+            db_pool = await asyncpg.create_pool(DATABASE_URL, timeout=15)
+            
             async with db_pool.acquire() as conn:
-                # Crear tabla si no existe
                 await conn.execute('''
                     CREATE TABLE IF NOT EXISTS usuarios (
                         user_id BIGINT PRIMARY KEY,
@@ -480,8 +467,6 @@ async def main():
                         idioma TEXT DEFAULT 'es'
                     )
                 ''')
-                
-                # 🚨 ESTO ES LO QUE FALTABA: AGREGAR TODAS LAS COLUMNAS NUEVAS A LA FUERZA 🚨
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pro_expira TIMESTAMP;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS alerta_puesto TEXT;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS alerta_ubicacion TEXT;")
@@ -494,16 +479,18 @@ async def main():
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_linkedin BOOLEAN DEFAULT FALSE;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_pdf BOOLEAN DEFAULT FALSE;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_adaptar BOOLEAN DEFAULT FALSE;")
+                
+            print("✅ Base de datos conectada y tablas actualizadas.", flush=True)
             break
         except Exception as e:
-            print(f"Error DB: {e}")
+            print(f"❌ Error conectando a la DB: {e}. Reintentando en 5 segundos...", flush=True)
             await asyncio.sleep(5)
 
     scheduler.add_job(enviar_alertas_diarias, 'interval', hours=24)
     scheduler.start()
 
     await bot.delete_webhook(drop_pending_updates=True) 
-    print("✅ Súper Bot encendido...")
+    print("✅ Súper Bot encendido y escuchando en Telegram...", flush=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
