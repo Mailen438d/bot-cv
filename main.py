@@ -30,7 +30,7 @@ client = AsyncGroq(api_key=GROQ_API_KEY)
 # ==========================================
 # 🚨 PON TU ID DE TELEGRAM AQUÍ
 # ==========================================
-ADMIN_ID = 6643605796 
+ADMIN_ID = 6643605796
 
 # --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
@@ -50,37 +50,23 @@ scheduler = AsyncIOScheduler()
 TEXTOS = {
     "es": {
         "bienvenida": "¡Hola! 💼 Soy tu **Súper Asistente de Carrera con IA**.\n\nTienes **2 usos gratuitos**. Puedes escribirme o enviarme una **nota de voz**.",
-        "cv": "📄 Analizar mi CV ($5)",
-        "carta": "✉️ Carta de Presentación ($5)",
-        "entrevista": "🎤 Simulador de Entrevista ($10)",
-        "estafa": "🕵️ Detector de Estafas ($5)",
-        "cold_email": "🚀 Cold Email LinkedIn ($5)",
-        "linkedin": "💼 Optimizar mi LinkedIn ($5)",
-        "pdf": "📑 Descargar CV en PDF Profesional ($10)",
-        "adaptar": "🌍 Adaptar CV a otro País ($8)",
-        "empleos": "🔍 Buscar Empleos (GRATIS)",
-        "vip": "🔔 Cazador VIP (300 Stars/mes)",
-        "pro": "⭐ PASE PRO (500 Stars / 2 Meses)",
-        "referido": "🎁 Invitar Amigos (Ganar Usos)",
-        "info": "ℹ️ Información de las Herramientas",
-        "idioma": "🌐 Cambiar Idioma (ES/EN)"
+        "cv": "📄 Analizar mi CV ($5)", "carta": "✉️ Carta de Presentación ($5)",
+        "entrevista": "🎤 Simulador de Entrevista ($10)", "estafa": "🕵️ Detector de Estafas ($5)",
+        "cold_email": "🚀 Cold Email LinkedIn ($5)", "linkedin": "💼 Optimizar mi LinkedIn ($5)",
+        "pdf": "📑 Descargar CV en PDF Profesional ($10)", "adaptar": "🌍 Adaptar CV a otro País ($8)",
+        "empleos": "🔍 Buscar Empleos (GRATIS)", "vip": "🔔 Cazador VIP (300 Stars/mes)",
+        "pro": "⭐ PASE PRO (500 Stars / 2 Meses)", "referido": "🎁 Invitar Amigos (Ganar Usos)",
+        "info": "ℹ️ Información de las Herramientas", "idioma": "🌐 Cambiar Idioma (ES/EN)"
     },
     "en": {
         "bienvenida": "Hello! 💼 I am your **AI Career Super Assistant**.\n\nYou have **2 free uses**. You can write or send a **voice note**.",
-        "cv": "📄 Analyze my Resume ($5)",
-        "carta": "✉️ Cover Letter ($5)",
-        "entrevista": "🎤 Interview Simulator ($10)",
-        "estafa": "🕵️ Scam Detector ($5)",
-        "cold_email": "🚀 LinkedIn Cold Email ($5)",
-        "linkedin": "💼 Optimize my LinkedIn ($5)",
-        "pdf": "📑 Download Resume as PDF ($10)",
-        "adaptar": "🌍 Adapt Resume to Country ($8)",
-        "empleos": "🔍 Find Jobs (FREE)",
-        "vip": "🔔 VIP Hunter (300 Stars/month)",
-        "pro": "⭐ PRO PASS (500 Stars / 2 Months)",
-        "referido": "🎁 Invite Friends (Earn Uses)",
-        "info": "ℹ️ Tools Information",
-        "idioma": "🌐 Change Language (ES/EN)"
+        "cv": "📄 Analyze my Resume ($5)", "carta": "✉️ Cover Letter ($5)",
+        "entrevista": "🎤 Interview Simulator ($10)", "estafa": "🕵️ Scam Detector ($5)",
+        "cold_email": "🚀 LinkedIn Cold Email ($5)", "linkedin": "💼 Optimize my LinkedIn ($5)",
+        "pdf": "📑 Download Resume as PDF ($10)", "adaptar": "🌍 Adapt Resume to Country ($8)",
+        "empleos": "🔍 Find Jobs (FREE)", "vip": "🔔 VIP Hunter (300 Stars/month)",
+        "pro": "⭐ PRO PASS (500 Stars / 2 Months)", "referido": "🎁 Invite Friends (Earn Uses)",
+        "info": "ℹ️ Tools Information", "idioma": "🌐 Change Language (ES/EN)"
     }
 }
 
@@ -117,7 +103,7 @@ async def enviar_mensaje_seguro(chat_id, texto):
     except Exception:
         await bot.send_message(chat_id=chat_id, text=texto_cortado)
 
-# --- MENÚ PRINCIPAL DINÁMICO ---
+# --- MENÚ PRINCIPAL ---
 def menu_principal(idioma="es"):
     t = TEXTOS.get(idioma, TEXTOS["es"])
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -174,7 +160,7 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("📑 Pega el texto de tu CV y lo convertiré en un PDF profesional en segundos." if idioma == "es" else "📑 Paste your Resume text and I'll turn it into a professional PDF.")
         await state.set_state(Herramientas.esperando_pdf)
     elif accion == "adaptar":
-        await callback.message.answer("🌍 ¿A qué país quieres adaptar tu CV? (Ej: Canadá, España, USA, Alemania)" if idioma == "es" else "🌍 Which country do you want to adapt your Resume to? (e.g., Canada, Spain, USA)")
+        await callback.message.answer("🌍 ¿A qué país quieres adaptar tu CV? (Ej: Canadá, España, USA, Alemania)" if idioma == "es" else "🌍 Which country do you want to adapt your Resume to?")
         await state.set_state(Herramientas.esperando_pais_adaptar)
     elif accion == "entrevista":
         await callback.message.answer("🎤 ¿Para qué puesto quieres que te entreviste?" if idioma == "es" else "🎤 For what position do you want to be interviewed?")
@@ -192,31 +178,9 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"🎁 **Invita y gana**\n\n+3 usos por cada amigo:\n`{link}`", parse_mode="Markdown")
     elif accion == "info":
         info_texto = (
-            "ℹ️ **Información de las Herramientas**\n\n"
-            "📄 **Analizar CV:** La IA revisa tu CV y te da consejos para mejorarlo.\n"
-            "✉️ **Carta de Presentación:** Escribe una carta adaptada a una oferta específica.\n"
-            "🎤 **Simulador:** Haz una entrevista de prueba por texto con la IA.\n"
-            "🕵️ **Estafas:** Detecta si una oferta es fraudulenta.\n"
-            "🚀 **Cold Email:** Escribe un mensaje directo para LinkedIn.\n"
-            "💼 **LinkedIn:** Mejora la redacción de tu perfil.\n"
-            "📑 **PDF:** Descarga tu CV en un formato profesional.\n"
-            "🌍 **Adaptar:** Cambia tu CV al formato de otro país.\n"
-            "🔍 **Buscar Empleos:** Ofertas remotas reales.\n"
-            "🔔 **VIP:** Recibe ofertas diarias por suscripción.\n"
-            "⭐ **PRO:** Desbloquea TODO por 2 meses."
+            "ℹ️ **Información de las Herramientas**\n\n📄 **Analizar CV:** La IA revisa tu CV y te da consejos.\n✉️ **Carta:** Escribe una carta adaptada a una oferta.\n🎤 **Entrevista:** Simula una entrevista con la IA.\n🕵️ **Estafas:** Detecta ofertas fraudulentas.\n🚀 **Cold Email:** Mensaje para reclutadores en LinkedIn.\n💼 **LinkedIn:** Mejora tu perfil.\n📑 **PDF:** Descarga tu CV en formato profesional.\n🌍 **Adaptar:** Cambia tu CV al formato de otro país.\n🔍 **Buscar:** Ofertas remotas reales.\n🔔 **VIP:** Ofertas diarias.\n⭐ **PRO:** Desbloquea TODO por 2 meses."
         ) if idioma == "es" else (
-            "ℹ️ **Tools Information**\n\n"
-            "📄 **Analyze Resume:** AI reviews your resume and gives advice.\n"
-            "✉️ **Cover Letter:** Writes a letter for a specific job.\n"
-            "🎤 **Simulator:** Practice interview by text with AI.\n"
-            "🕵️ **Scams:** Detects fraudulent job offers.\n"
-            "🚀 **Cold Email:** Writes a direct message for LinkedIn.\n"
-            "💼 **LinkedIn:** Improves your profile text.\n"
-            "📑 **PDF:** Download your resume professionally.\n"
-            "🌍 **Adapt:** Formats your resume for another country.\n"
-            "🔍 **Find Jobs:** Real remote offers.\n"
-            "🔔 **VIP:** Daily job alerts.\n"
-            "⭐ **PRO:** Unlock ALL for 2 months."
+            "ℹ️ **Tools Information**\n\n📄 **Analyze Resume:** AI reviews your resume.\n✉️ **Cover Letter:** Writes a letter for a job.\n🎤 **Simulator:** Practice interview.\n🕵️ **Scams:** Detects fraudulent offers.\n🚀 **Cold Email:** LinkedIn message.\n💼 **LinkedIn:** Improves profile.\n📑 **PDF:** Professional resume download.\n🌍 **Adapt:** Formats for another country.\n🔍 **Find Jobs:** Real remote offers.\n🔔 **VIP:** Daily alerts.\n⭐ **PRO:** Unlock ALL for 2 months."
         )
         await callback.message.answer(info_texto, parse_mode="Markdown")
     elif accion == "idioma":
@@ -225,12 +189,17 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
             await conn.execute("UPDATE usuarios SET idioma = $1 WHERE user_id = $2", nuevo_idioma, uid)
         await callback.message.answer("Language changed to English 🇬🇧" if nuevo_idioma == "en" else "Idioma cambiado a Español 🇪🇸", reply_markup=menu_principal(nuevo_idioma))
 
-# --- VERIFICACIÓN DE PAGOS ---
+# --- VERIFICACIÓN DE PAGOS (CON PROTECCIÓN DE COLUMNAS) ---
 async def verificar_uso(message: Message, herramienta: str):
     uid = message.from_user.id
     async with db_pool.acquire() as conn:
         usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
-        if usuario['pro_expira'] and usuario['pro_expira'] > datetime.now(): return True
+        
+        # PROTECCIÓN: Si la columna pro_expira no existe en el registro, la ignoramos
+        if 'pro_expira' in usuario.keys() and usuario['pro_expira']:
+            if usuario['pro_expira'] > datetime.now():
+                return True
+            
         columna = f"pago_{herramienta}"
         if columna in usuario.keys() and usuario[columna]: return True
         
@@ -248,7 +217,6 @@ def crear_pdf(texto_cv):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=11)
-    # Limpiar caracteres que el PDF básico no soporta
     texto_limpio = texto_cv.encode('latin-1', 'replace').decode('latin-1')
     pdf.multi_cell(0, 8, texto_limpio)
     ruta_pdf = f"cv_{datetime.now().timestamp()}.pdf"
@@ -276,9 +244,9 @@ async def procesar_con_ia(msg: Message, texto: str, herramienta: str, extra_data
         )
         return response.choices[0].message.content
     except Exception as e:
-        return "Error con la IA."
+        return f"Error con la IA: {e}"
 
-# --- MANEJADOR DE TEXTOS Y ESTADOS ---
+# --- MANEJADOR DE TEXTOS ---
 @dp.message(F.text & ~F.text.startswith("/"))
 async def manejar_texto(msg: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -337,7 +305,7 @@ async def manejar_texto(msg: Message, state: FSMContext):
         try:
             ruta = crear_pdf(texto_pdf)
             await msg.answer_document(FSInputFile(ruta), caption="📑 Aquí tienes tu CV en PDF.")
-            os.remove(ruta) # Limpiar el servidor
+            os.remove(ruta)
         except Exception as e:
             await msg.answer(f"Error al crear PDF: {e}")
     elif current_state == Herramientas.esperando_texto_adaptar.state:
@@ -349,7 +317,6 @@ async def manejar_texto(msg: Message, state: FSMContext):
         res = await procesar_con_ia(msg, msg.text, "adaptar", extra_data=pais)
         await enviar_mensaje_seguro(uid, res)
     else:
-        # Modo por defecto
         if not await verificar_uso(msg, "cv"): return
         res = await procesar_con_ia(msg, msg.text, "cv")
         await enviar_mensaje_seguro(uid, res)
@@ -439,7 +406,7 @@ async def pago_exitoso(msg: Message):
             await conn.execute(f"UPDATE usuarios SET pago_{h} = TRUE WHERE user_id = $1", uid)
             await msg.answer(f"🎉 Herramienta desbloqueada con éxito.")
 
-# --- FUNCIONES RESTANTES ---
+# --- RESTANTES ---
 async def guardar_alerta_vip(msg: Message, state: FSMContext):
     ubicacion = msg.text
     datos = await state.get_data()
@@ -495,13 +462,14 @@ async def responder_entrevista(msg: Message, state: FSMContext):
             await state.update_data(pregunta_num=num + 1, historial=hist)
     except: await msg.answer("Error.")
 
-# --- INICIALIZACIÓN ---
+# --- INICIALIZACIÓN (AQUÍ ESTÁ EL ARREGLO DE LA BASE DE DATOS) ---
 async def main():
     global db_pool
     while True:
         try:
             db_pool = await asyncpg.create_pool(DATABASE_URL)
             async with db_pool.acquire() as conn:
+                # Crear tabla si no existe
                 await conn.execute('''
                     CREATE TABLE IF NOT EXISTS usuarios (
                         user_id BIGINT PRIMARY KEY,
@@ -509,23 +477,27 @@ async def main():
                         pro_expira TIMESTAMP,
                         alerta_puesto TEXT,
                         alerta_ubicacion TEXT,
-                        idioma TEXT DEFAULT 'es',
-                        pago_cv BOOLEAN DEFAULT FALSE,
-                        pago_carta BOOLEAN DEFAULT FALSE,
-                        pago_entrevista BOOLEAN DEFAULT FALSE,
-                        pago_estafa BOOLEAN DEFAULT FALSE,
-                        pago_cold_email BOOLEAN DEFAULT FALSE,
-                        pago_linkedin BOOLEAN DEFAULT FALSE,
-                        pago_pdf BOOLEAN DEFAULT FALSE,
-                        pago_adaptar BOOLEAN DEFAULT FALSE
+                        idioma TEXT DEFAULT 'es'
                     )
                 ''')
-                # Añadir columnas si la tabla ya existía
+                
+                # 🚨 ESTO ES LO QUE FALTABA: AGREGAR TODAS LAS COLUMNAS NUEVAS A LA FUERZA 🚨
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pro_expira TIMESTAMP;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS alerta_puesto TEXT;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS alerta_ubicacion TEXT;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS idioma TEXT DEFAULT 'es';")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_cv BOOLEAN DEFAULT FALSE;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_carta BOOLEAN DEFAULT FALSE;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_entrevista BOOLEAN DEFAULT FALSE;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_estafa BOOLEAN DEFAULT FALSE;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_cold_email BOOLEAN DEFAULT FALSE;")
+                await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_linkedin BOOLEAN DEFAULT FALSE;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_pdf BOOLEAN DEFAULT FALSE;")
                 await conn.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pago_adaptar BOOLEAN DEFAULT FALSE;")
             break
-        except: await asyncio.sleep(5)
+        except Exception as e:
+            print(f"Error DB: {e}")
+            await asyncio.sleep(5)
 
     scheduler.add_job(enviar_alertas_diarias, 'interval', hours=24)
     scheduler.start()
