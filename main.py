@@ -49,17 +49,17 @@ scheduler = AsyncIOScheduler()
 # --- TEXTOS DE IDIOMA ---
 TEXTOS = {
     "es": {
-        "bienvenida": "¡Hola! 💼 Soy tu **Súper Asistente de Carrera con IA**.\n\nTienes **2 usos gratuitos**. Puedes escribirme o enviarme una **nota de voz**.",
+        "bienvenida": "¡Hola! 💼 Soy tu **Súper Asistente de Carrera con IA**.\n\nTienes **1 uso gratuito** para probar. Luego puedes comprar herramientas por 150 Stars o el Pase PRO de 2 meses.\n\nEscríbeme o envíame una **nota de voz**.",
         "cv": "📄 Analizar mi CV ($5)", "carta": "✉️ Carta de Presentación ($5)",
         "entrevista": "🎤 Simulador de Entrevista ($10)", "estafa": "🕵️ Detector de Estafas ($5)",
         "cold_email": "🚀 Cold Email LinkedIn ($5)", "linkedin": "💼 Optimizar mi LinkedIn ($5)",
-        "pdf": "📑 Descargar CV en PDF Profesional ($10)", "adaptar": "🌍 Adaptar CV a otro País ($8)",
+        "pdf": "📑 Descargar CV en PDF ($10)", "adaptar": "🌍 Adaptar CV a otro País ($8)",
         "empleos": "🔍 Buscar Empleos (GRATIS)", "vip": "🔔 Cazador VIP (300 Stars/mes)",
         "pro": "⭐ PASE PRO (500 Stars / 2 Meses)", "referido": "🎁 Invitar Amigos (Ganar Usos)",
         "info": "ℹ️ Información de las Herramientas", "idioma": "🌐 Cambiar Idioma (ES/EN)"
     },
     "en": {
-        "bienvenida": "Hello! 💼 I am your **AI Career Super Assistant**.\n\nYou have **2 free uses**. You can write or send a **voice note**.",
+        "bienvenida": "Hello! 💼 I am your **AI Career Super Assistant**.\n\nYou have **1 free use**. Then you can buy tools for 150 Stars or the 2-month PRO Pass.\n\nWrite or send a **voice note**.",
         "cv": "📄 Analyze my Resume ($5)", "carta": "✉️ Cover Letter ($5)",
         "entrevista": "🎤 Interview Simulator ($10)", "estafa": "🕵️ Scam Detector ($5)",
         "cold_email": "🚀 LinkedIn Cold Email ($5)", "linkedin": "💼 Optimize my LinkedIn ($5)",
@@ -124,7 +124,8 @@ async def start(msg: Message):
     async with db_pool.acquire() as conn:
         usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
         if not usuario:
-            await conn.execute("INSERT INTO usuarios (user_id, usos_gratis, idioma) VALUES ($1, $2, $3)", uid, 2, "es")
+            # Creamos al usuario con 1 uso gratis
+            await conn.execute("INSERT INTO usuarios (user_id, usos_gratis, idioma) VALUES ($1, $2, $3)", uid, 1, "es")
             idioma = "es"
         else:
             idioma = usuario['idioma'] or "es"
@@ -166,7 +167,7 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("🎤 ¿Para qué puesto quieres que te entreviste?")
         await state.set_state(Entrevista.esperando_puesto)
     elif accion == "empleos":
-        await callback.message.answer("🔍 ¿Qué tipo de empleo buscas? (Ej: Programador, Ventas)")
+        await callback.message.answer("🔍 ¿Qué tipo de empleo buscas? (Ej: Programador, Ventas, Diseño)")
         await state.set_state(BuscadorEmpleo.esperando_palabra)
     elif accion == "vip":
         await cobrar_alerta_vip(uid)
@@ -249,7 +250,7 @@ async def manejar_texto(msg: Message, state: FSMContext):
 
     if current_state == BuscadorEmpleo.esperando_palabra.state:
         await state.update_data(busqueda=msg.text)
-        await msg.answer("🌍 ¿País o ciudad? (Escribe 'Remoto')")
+        await msg.answer("🌍 ¿País o ciudad? (Escribe 'Remoto' para buscar en todo el mundo)")
         await state.set_state(BuscadorEmpleo.esperando_pais)
         return
     elif current_state == BuscadorEmpleo.esperando_pais.state:
@@ -335,57 +336,56 @@ async def manejar_audio(msg: Message, state: FSMContext):
     except Exception as e:
         await msg.answer(f"❌ Error audio: {e}")
 
-# --- BUSCADOR DE EMPLEOS CON TRADUCCIÓN ---
+# --- BUSCADOR DE EMPLEOS (JOBICY + REMOTIVE CON TRADUCCIÓN) ---
 async def buscar_empleos(msg: Message, state: FSMContext):
     pais = msg.text.lower()
     datos = await state.get_data()
     palabra_original = datos.get("busqueda", "").lower()
     await state.clear()
     
-    await msg.answer(f"🔎 Buscando **{palabra_original}**...", parse_mode="Markdown")
+    await msg.answer(f"🔎 Buscando **{palabra_original}** en **{msg.text}**...", parse_mode="Markdown")
     
-    # 1. TRADUCIR LA PALABRA AL INGLÉS CON LA IA
+    # Traducir al inglés
     palabra = palabra_original
     try:
         res_trad = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": "Translate the following job title or keyword to English. Respond ONLY with the translated word or words in lowercase, no punctuation, no extra text, no quotes."}, 
-                {"role": "user", "content": palabra_original}
-            ]
+            messages=[{"role": "system", "content": "Translate to English. Respond ONLY with the translated word, lowercase, no punctuation."}, {"role": "user", "content": palabra_original}]
         )
-        palabra = res_trad.choices[0].message.content.strip().lower()
-        # Limpiar comillas o puntos que la IA pueda añadir
-        palabra = palabra.replace('"', '').replace("'", "").replace(".", "")
-    except:
-        pass # Si falla la traducción, usa la palabra original
+        palabra = res_trad.choices[0].message.content.strip().lower().replace('"', '').replace(".", "")
+    except: pass
 
     enc = 0
+
+    # Intentar con Jobicy
     try:
         async with httpx.AsyncClient() as client_http:
-            # Buscar con la palabra traducida
             res_j = await client_http.get(f"https://jobicy.com/api/v2/remote-jobs?count=10&tag={palabra}")
             if res_j.status_code == 200:
                 for job in res_j.json().get("jobs", []):
                     if palabra in str(job.get('jobTitle','')).lower() or palabra in str(job.get('jobExcerpt','')).lower():
-                        await msg.answer(f"💼 **{job['jobTitle']}**\n🏢 {job['companyName']}\n🔗 [Aplicar]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
+                        await msg.answer(f"💼 **{job['jobTitle']}**\n🏢 {job['companyName']}\n📍 Remoto\n🔗 [Aplicar]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
                         enc += 1
-            
-            res_r = await client_http.get(f"https://remotive.com/api/remote-jobs?limit=10&search={palabra}")
-            if res_r.status_code == 200:
-                for job in res_r.json().get("jobs", []):
-                    if palabra in str(job.get('title','')).lower():
-                        await msg.answer(f"💼 **{job['title']}**\n🏢 {job['company_name']}\n🔗 [Aplicar]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
-                        enc += 1
-                        
-        if enc == 0: 
-            await msg.answer(f"😔 Sin resultados exactos para '{palabra}' (traducido del español). Prueba con otra palabra.")
-    except: 
-        await msg.answer("❌ Error buscador.")
+    except: pass
+
+    # Si Jobicy no encuentra, buscar en Remotive
+    if enc == 0:
+        try:
+            async with httpx.AsyncClient() as client_http:
+                res_r = await client_http.get(f"https://remotive.com/api/remote-jobs?limit=10&search={palabra}")
+                if res_r.status_code == 200:
+                    for job in res_r.json().get("jobs", []):
+                        if palabra in str(job.get('title','')).lower():
+                            await msg.answer(f"💼 **{job['title']}**\n🏢 {job['company_name']}\n📍 {job['candidate_required_location']}\n🔗 [Aplicar]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
+                            enc += 1
+        except: pass
+
+    if enc == 0:
+        await msg.answer(f"😔 No encontré ofertas exactas para **{palabra_original}**. Prueba con otra palabra.")
 
 async def cobrar_herramienta_individual(uid, herramienta):
     titulos = {"cv": "CV", "carta": "Carta", "entrevista": "Entrevista", "estafa": "Estafas", "cold_email": "Cold Email", "linkedin": "LinkedIn", "pdf": "CV en PDF", "adaptar": "Adaptar CV"}
-    await bot.send_message(uid, f"⚠️ Sin usos gratis. Compra **{titulos.get(herramienta, 'esto')}** por 150 Stars o el PASE PRO.", parse_mode="Markdown")
+    await bot.send_message(uid, f"⚠️ Has agotado tu uso gratis. Compra **{titulos.get(herramienta, 'esto')}** por 150 Stars o el PASE PRO.", parse_mode="Markdown")
     await bot.send_invoice(chat_id=uid, title=f"Comprar {titulos.get(herramienta, 'Herramienta')}", description="Acceso de por vida.", payload=f"buy_{herramienta}", provider_token="", currency="XTR", prices=[LabeledPrice(label="Individual", amount=150)])
 
 async def cobrar_pro(uid):
@@ -398,10 +398,25 @@ async def cobrar_alerta_vip(uid):
 async def pre_checkout(query: PreCheckoutQuery):
     await query.answer(ok=True)
 
+# --- PAGOS EXITOSOS + NOTIFICACIÓN AL ADMIN ---
 @dp.message(F.successful_payment)
 async def pago_exitoso(msg: Message):
     uid = msg.from_user.id
+    username = f"@{msg.from_user.username}" if msg.from_user.username else msg.from_user.full_name
     payload = msg.successful_payment.invoice_payload
+    monto = msg.successful_payment.total_amount
+    
+    # 1. Notificar al Admin
+    alerta_admin = (
+        f"💰 **¡NUEVA VENTA!** 💰\n\n"
+        f"👤 **Usuario:** {username} (ID: `{uid}`)\n"
+        f"📦 **Producto:** `{payload}`\n"
+        f"⭐ **Monto:** {monto} Stars"
+    )
+    try: await bot.send_message(ADMIN_ID, alerta_admin, parse_mode="Markdown")
+    except: pass
+
+    # 2. Dar acceso al usuario
     async with db_pool.acquire() as conn:
         if payload == "pro_2months":
             expira = datetime.now() + timedelta(days=60)
@@ -437,6 +452,30 @@ async def enviar_alertas_diarias():
                         for j in res.json()["jobs"]:
                             await bot.send_message(u['user_id'], f"💼 **{j['jobTitle']}**\n🏢 {j['companyName']}\n🔗 [Aplicar]({j['url']})", parse_mode="Markdown")
             except: pass
+
+# --- COMANDO DE ESTADÍSTICAS PARA EL ADMIN ---
+@dp.message(Command("stats"))
+async def admin_stats(msg: Message):
+    if msg.from_user.id != ADMIN_ID: return
+    async with db_pool.acquire() as conn:
+        total_users = await conn.fetchval("SELECT COUNT(*) FROM usuarios")
+        pro_users = await conn.fetchval("SELECT COUNT(*) FROM usuarios WHERE pro_expira > NOW()")
+        
+        ventas = await conn.fetchval('''
+            SELECT COUNT(*) FROM usuarios 
+            WHERE pago_cv = TRUE OR pago_carta = TRUE OR pago_entrevista = TRUE 
+            OR pago_estafa = TRUE OR pago_cold_email = TRUE OR pago_linkedin = TRUE 
+            OR pago_pdf = TRUE OR pago_adaptar = TRUE
+        ''')
+        
+    texto = (
+        f"📊 **ESTADÍSTICAS DEL BOT**\n\n"
+        f"👥 **Usuarios totales:** {total_users}\n"
+        f"⭐ **Usuarios PRO:** {pro_users}\n"
+        f"💰 **Usuarios con compras:** {ventas}\n\n"
+        f"*(Recuerda revisar console.groq.com para ver tu límite de IA).*"
+    )
+    await msg.answer(texto, parse_mode="Markdown")
 
 @dp.message(Command("modo_admin"))
 async def activar_modo_dios(msg: Message, state: FSMContext):
@@ -482,7 +521,7 @@ async def main():
                 await conn.execute('''
                     CREATE TABLE IF NOT EXISTS usuarios (
                         user_id BIGINT PRIMARY KEY,
-                        usos_gratis INTEGER DEFAULT 2,
+                        usos_gratis INTEGER DEFAULT 1,
                         pro_expira TIMESTAMP,
                         alerta_puesto TEXT,
                         alerta_ubicacion TEXT,
