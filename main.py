@@ -25,7 +25,7 @@ client = AsyncGroq(api_key=GROQ_API_KEY)
 # ==========================================
 # 🚨 PON TU ID DE TELEGRAM AQUÍ (Sin comillas)
 # ==========================================
-ADMIN_ID = 6643605796
+ADMIN_ID =  6643605796
 
 # --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
@@ -53,7 +53,7 @@ class BuscadorEmpleo(StatesGroup):
 class AdminChat(StatesGroup):
     en_progreso = State()
 
-# --- MENÚ PRINCIPAL CON PRECIOS (Anclaje de valor) ---
+# --- MENÚ PRINCIPAL ---
 def menu_principal():
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📄 Analizar mi CV (Valor: $5)", callback_data="menu_cv")],
@@ -130,7 +130,6 @@ async def buscar_empleos_filtrados(msg: Message, state: FSMContext):
     
     if not await verificar_uso(msg): return
         
-    # AQUI ESTA EL ARREGLO DEL MARKDOWN
     await msg.answer(f"🔎 Buscando ofertas de **{palabra}** para **{msg.text}**...", parse_mode="Markdown")
     
     try:
@@ -305,7 +304,10 @@ async def pago_exitoso(msg: Message):
     usuarios[uid]["usos_gratis"] = 9999
     await msg.answer("¡Pago recibido! 🎉 Ya eres **Premium**. Tienes acceso ilimitado a todas las herramientas.", reply_markup=menu_principal(), parse_mode="Markdown")
 
+# --- FUNCIÓN PRINCIPAL (SIN DUPLICADOS Y LIMPIA) ---
 async def main():
+    # Limpia cualquier conexión fantasma en los servidores de Telegram
+    await bot.delete_webhook(drop_pending_updates=True) 
     print("✅ Súper Bot encendido y listo para operar...")
     await dp.start_polling(bot)
 
