@@ -3,6 +3,7 @@ import os
 import threading
 import io
 import httpx
+import asyncpg
 from flask import Flask
 from pypdf import PdfReader
 from aiogram import Bot, Dispatcher, F
@@ -13,10 +14,11 @@ from aiogram.fsm.state import State, StatesGroup
 from groq import AsyncGroq
 
 # ==========================================
-# CONFIGURACIÓN Y LLAVES
+# CONFIGURACIÓN Y LLAVES (Se leen de Render)
 # ==========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
@@ -25,7 +27,7 @@ client = AsyncGroq(api_key=GROQ_API_KEY)
 # ==========================================
 # 🚨 PON TU ID DE TELEGRAM AQUÍ (Sin comillas)
 # ==========================================
-ADMIN_ID = 6643605796
+ADMIN_ID = 6643605796 
 
 # --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
@@ -37,9 +39,9 @@ def run_flask():
 def keep_alive():
     t = threading.Thread(target=run_flask)
     t.start()
-# ----------------------------------
 
-usuarios = {}
+# Variable global para la base de datos
+db_pool = None
 
 # --- ESTADOS ---
 class Entrevista(StatesGroup):
@@ -53,7 +55,7 @@ class BuscadorEmpleo(StatesGroup):
 class AdminChat(StatesGroup):
     en_progreso = State()
 
-# --- 🛡️ FUNCIÓN MAESTRA PARA ENVIAR MENSAJES SEGUROS ---
+# --- 🛡️ FUNCIÓN MAESTRA PARA ENVIAR MENSAJES ---
 async def enviar_mensaje_seguro(chat_id, texto):
     texto_cortado = texto[:4000]
     try:
@@ -75,8 +77,11 @@ def menu_principal():
 @dp.message(CommandStart())
 async def start(msg: Message):
     uid = msg.from_user.id
-    if uid not in usuarios:
-        usuarios[uid] = {"pago_activo": False, "usos_gratis": 2}
+    
+    async with db_pool.acquire() as conn:
+        usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
+        if not usuario:
+            await conn.execute("INSERT INTO usuarios (user_id, pago_activo, usos_gratis) VALUES ($1, $2, $3)", uid, False, 2)
     
     texto = (
         "¡Hola! 💼 Soy tu **Asistente de Carrera Profesional con IA**.\n\n"
@@ -89,10 +94,6 @@ async def start(msg: Message):
 @dp.callback_query(F.data.startswith("menu_"))
 async def manejar_menu(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    uid = callback.from_user.id
-    if uid not in usuarios:
-        usuarios[uid] = {"pago_activo": False, "usos_gratis": 2}
-
     accion = callback.data.split("_")[1]
 
     if accion == "cv":
@@ -106,27 +107,32 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("💼 ¿Qué tipo de empleo buscas? (Ej: Programador, Marketing, Soporte)\n\nEscribe la palabra clave:")
         await state.set_state(BuscadorEmpleo.esperando_palabra)
     elif accion == "premium":
-        await cobrar_usuario(uid)
+        await cobrar_usuario(callback.from_user.id)
 
-# --- 🛡️ FUNCIÓN DE VERIFICACIÓN BLINDADA ---
+# --- 🛡️ VERIFICACIÓN DE USOS CON BASE DE DATOS ---
 async def verificar_uso(message: Message):
     uid = message.from_user.id
     
-    # ESTA ES LA CORRECCIÓN: Si el usuario no existe (ej. el bot se reinició), lo creamos.
-    if uid not in usuarios:
-        usuarios[uid] = {"pago_activo": False, "usos_gratis": 2}
+    async with db_pool.acquire() as conn:
+        usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
         
-    if usuarios[uid]["pago_activo"]: return True
-    
-    if usuarios[uid]["usos_gratis"] > 0:
-        usuarios[uid]["usos_gratis"] -= 1
-        await message.answer(f"*(Te quedan {usuarios[uid]['usos_gratis']} usos gratis)*", parse_mode="Markdown")
-        return True
-    else:
-        await cobrar_usuario(uid)
-        return False
+        if not usuario:
+            await conn.execute("INSERT INTO usuarios (user_id, pago_activo, usos_gratis) VALUES ($1, $2, $3)", uid, False, 2)
+            return True
 
-# --- BUSCADOR DE EMPLEOS CON FILTRO DE PAÍS ---
+        if usuario['pago_activo']:
+            return True
+        
+        if usuario['usos_gratis'] > 0:
+            nuevos_usos = usuario['usos_gratis'] - 1
+            await conn.execute("UPDATE usuarios SET usos_gratis = $1 WHERE user_id = $2", nuevos_usos, uid)
+            await message.answer(f"*(Te quedan {nuevos_usos} usos gratis)*", parse_mode="Markdown")
+            return True
+        else:
+            await cobrar_usuario(uid)
+            return False
+
+# --- BUSCADOR DE EMPLEOS ---
 @dp.message(BuscadorEmpleo.esperando_palabra)
 async def preguntar_pais(msg: Message, state: FSMContext):
     palabra = msg.text
@@ -151,60 +157,52 @@ async def buscar_empleos_filtrados(msg: Message, state: FSMContext):
             data = response.json()
             
             if not data.get("jobs"):
-                await msg.answer("No encontré ofertas para esa palabra. Intenta con otra (ej: developer, sales, support).")
+                await msg.answer("No encontré ofertas para esa palabra. Intenta con otra.")
                 return
                 
             empleos_encontrados = 0
-            
             for job in data["jobs"]:
                 loc_oferta = job['candidate_required_location'].lower()
-                
                 if "worldwide" in loc_oferta or pais in loc_oferta or "anywhere" in loc_oferta:
                     texto = f"💼 **{job['title']}**\n🏢 {job['company_name']}\n📍 {job['candidate_required_location']}\n🔗 [Aplicar aquí]({job['url']})"
                     await msg.answer(texto, parse_mode="Markdown", disable_web_page_preview=True)
                     empleos_encontrados += 1
-                    
                     if empleos_encontrados >= 8: break
             
             if empleos_encontrados == 0:
-                await msg.answer(f"😔 No encontré ofertas específicas para **{msg.text}**. Prueba buscando 'Worldwide' o 'LATAM'.", parse_mode="Markdown")
-                
+                await msg.answer(f"😔 No encontré ofertas para **{msg.text}**. Prueba buscando 'Worldwide' o 'LATAM'.", parse_mode="Markdown")
     except Exception as e:
-        await msg.answer(f"Error al buscar empleos. Intenta de nuevo.")
+        await msg.answer(f"Error al buscar empleos.")
 
-# --- 🚨 MODO DIOS (ADMIN) ---
+# --- MODO DIOS (ADMIN) ---
 @dp.message(Command("modo_admin"))
 async def activar_modo_dios(msg: Message, state: FSMContext):
     if msg.from_user.id == ADMIN_ID:
         await state.set_state(AdminChat.en_progreso)
-        await msg.answer("👑 **MODO DIOS ACTIVADO.**\n\nAhora puedes hacerme cualquier pregunta sin gastar usos. Para salir, escribe `/salir`.")
+        await msg.answer("👑 **MODO DIOS ACTIVADO.**\n\nPregúntame lo que quieras. Para salir, escribe `/salir`.")
     else:
-        await msg.answer("No tienes permiso para usar este comando.")
+        await msg.answer("No tienes permiso.")
 
 @dp.message(Command("salir"))
 async def salir_modo_dios(msg: Message, state: FSMContext):
     if msg.from_user.id == ADMIN_ID:
         await state.clear()
-        await msg.answer("Saliendo del Modo Dios. Volviendo al menú normal.", reply_markup=menu_principal())
+        await msg.answer("Saliendo del Modo Dios.", reply_markup=menu_principal())
 
 @dp.message(AdminChat.en_progreso)
 async def responder_admin(msg: Message):
     if msg.from_user.id != ADMIN_ID: return
-    
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     try:
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": "Estás hablando con el creador del bot. Responde de forma directa, técnica y sin filtros. Ayúdalo con lo que necesite."},
-                {"role": "user", "content": msg.text}
-            ]
+            messages=[{"role": "system", "content": "Estás hablando con el creador. Responde técnico y directo."}, {"role": "user", "content": msg.text}]
         )
         await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
         await msg.answer(f"Error: {e}")
 
-# --- LÓGICA DE TEXTO (CV Y CARTAS) ---
+# --- LÓGICA DE TEXTO ---
 @dp.message(F.text & ~F.text.startswith("/"))
 async def procesar_texto_general(msg: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -213,63 +211,45 @@ async def procesar_texto_general(msg: Message, state: FSMContext):
         return
 
     if not await verificar_uso(msg): return
-
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     try:
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": "Eres un experto en RRHH. Si el texto parece un CV, dale consejos de mejora. Si parece una oferta de trabajo, escribe una carta de presentación persuasiva basada en ella. Responde en español, conciso."},
-                {"role": "user", "content": msg.text}
-            ]
+            messages=[{"role": "system", "content": "Eres experto en RRHH. Analiza el CV o escribe una carta de presentación. Conciso."}, {"role": "user", "content": msg.text}]
         )
         await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
-        await msg.answer("Error con la IA. Intenta de nuevo.")
+        await msg.answer("Error con la IA.")
 
-# --- LÓGICA DE LEER PDFs ---
+# --- LÓGICA DE PDF ---
 @dp.message(F.document)
 async def procesar_pdf(msg: Message):
     if not msg.document.file_name.lower().endswith('.pdf'):
-        await msg.answer("Por favor, sube solo archivos PDF.")
+        await msg.answer("Sube solo PDF.")
         return
-
     if not await verificar_uso(msg): return
-
-    await msg.answer("⏳ Leyendo tu PDF y analizando...")
+    await msg.answer("⏳ Leyendo PDF...")
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
-
     try:
         file = await bot.get_file(msg.document.file_id)
         file_bytes = await bot.download_file(file.file_path)
         reader = PdfReader(io.BytesIO(file_bytes.read()))
-        texto = ""
-        for page in reader.pages[:5]:
-            texto += page.extract_text() or ""
-
-        if not texto:
-            await msg.answer("No pude leer el texto. ¿Es una imagen escaneada?")
-            return
-
+        texto = "".join([page.extract_text() or "" for page in reader.pages[:5]])
+        if not texto: return await msg.answer("PDF sin texto legible.")
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": "Eres un reclutador experto. Analiza este CV y da consejos concisos para mejorarlo."},
-                {"role": "user", "content": texto[:3000]}
-            ]
+            messages=[{"role": "system", "content": "Analiza este CV y da consejos."}, {"role": "user", "content": texto[:3000]}]
         )
         await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
-        await msg.answer(f"Error al procesar el PDF.")
+        await msg.answer(f"Error al leer PDF.")
 
-# --- SIMULADOR DE ENTREVISTA ---
+# --- SIMULADOR ---
 @dp.message(Entrevista.esperando_puesto)
 async def iniciar_entrevista(msg: Message, state: FSMContext):
     if not await verificar_uso(msg): return
-    
-    puesto = msg.text
-    await state.update_data(puesto=puesto, pregunta_num=1, historial=[])
-    await msg.answer(f"🎤 Perfecto. Vamos a simular una entrevista para **{puesto}**.\n\nPregunta 1: Cuéntame sobre ti y tu experiencia.", parse_mode="Markdown")
+    await state.update_data(puesto=msg.text, pregunta_num=1, historial=[])
+    await msg.answer(f"🎤 Entrevista para **{msg.text}**.\n\nPregunta 1: Cuéntame sobre ti.", parse_mode="Markdown")
     await state.set_state(Entrevista.en_progreso)
 
 async def responder_entrevista(msg: Message, state: FSMContext):
@@ -277,34 +257,24 @@ async def responder_entrevista(msg: Message, state: FSMContext):
     pregunta_num = datos.get("pregunta_num", 1)
     historial = datos.get("historial", [])
     historial.append({"role": "user", "content": msg.text})
-    
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     try:
-        messages = [{"role": "system", "content": f"Eres un entrevistador. Entrevistas para {datos['puesto']}. Evalúa brevemente y haz la siguiente pregunta."}] + historial
+        messages = [{"role": "system", "content": f"Entrevistador para {datos['puesto']}. Evalúa y pregunta."}] + historial
         response = await client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages)
         respuesta_ia = response.choices[0].message.content
         historial.append({"role": "assistant", "content": respuesta_ia})
-        
         if pregunta_num >= 5:
-            await enviar_mensaje_seguro(msg.chat.id, f"{respuesta_ia}\n\n✅ **Fin de la simulación.** ¡Buen trabajo!")
+            await enviar_mensaje_seguro(msg.chat.id, f"{respuesta_ia}\n\n✅ **Fin.**")
             await state.clear()
         else:
             await enviar_mensaje_seguro(msg.chat.id, respuesta_ia)
             await state.update_data(pregunta_num=pregunta_num + 1, historial=historial)
     except Exception as e:
-        await msg.answer("Error en la entrevista.")
+        await msg.answer("Error.")
 
-# --- SISTEMA DE COBRO ---
+# --- COBRO ---
 async def cobrar_usuario(uid):
-    await bot.send_invoice(
-        chat_id=uid,
-        title="Acceso Premium Ilimitado",
-        description="Desbloquea CVs, Cartas, Entrevistas y Búsquedas sin límites por 30 días.",
-        payload="premium_unlimited",
-        provider_token="", 
-        currency="XTR",    
-        prices=[LabeledPrice(label="Premium (Todo incluido)", amount=300)]
-    )
+    await bot.send_invoice(chat_id=uid, title="Premium Ilimitado", description="Acceso total 30 días.", payload="premium", provider_token="", currency="XTR", prices=[LabeledPrice(label="Premium", amount=300)])
 
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
@@ -313,14 +283,26 @@ async def pre_checkout(query: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def pago_exitoso(msg: Message):
     uid = msg.from_user.id
-    usuarios[uid]["pago_activo"] = True
-    usuarios[uid]["usos_gratis"] = 9999
-    await msg.answer("¡Pago recibido! 🎉 Ya eres **Premium**. Tienes acceso ilimitado a todas las herramientas.", reply_markup=menu_principal(), parse_mode="Markdown")
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE usuarios SET pago_activo = TRUE WHERE user_id = $1", uid)
+    await msg.answer("¡Pago recibido! 🎉 Ya eres Premium.", reply_markup=menu_principal())
 
-# --- FUNCIÓN PRINCIPAL ---
+# --- PRINCIPAL ---
 async def main():
+    global db_pool
+    print("Conectando a PostgreSQL...")
+    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    async with db_pool.acquire() as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios (
+                user_id BIGINT PRIMARY KEY,
+                pago_activo BOOLEAN DEFAULT FALSE,
+                usos_gratis INTEGER DEFAULT 2
+            )
+        ''')
+    print("DB conectada. Tabla lista.")
     await bot.delete_webhook(drop_pending_updates=True) 
-    print("✅ Súper Bot encendido y listo para operar...")
+    print("✅ Bot encendido...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
