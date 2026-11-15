@@ -25,7 +25,7 @@ client = AsyncGroq(api_key=GROQ_API_KEY)
 # ==========================================
 # 🚨 PON TU ID DE TELEGRAM AQUÍ (Sin comillas)
 # ==========================================
-ADMIN_ID =  6643605796
+ADMIN_ID = 6643605796
 
 # --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
@@ -52,6 +52,15 @@ class BuscadorEmpleo(StatesGroup):
 
 class AdminChat(StatesGroup):
     en_progreso = State()
+
+# --- 🛡️ FUNCIÓN MAESTRA PARA ENVIAR MENSAJES SEGUROS (EVITA ERRORES DE FORMATO) ---
+async def enviar_mensaje_seguro(chat_id, texto):
+    texto_cortado = texto[:4000]
+    try:
+        await bot.send_message(chat_id=chat_id, text=texto_cortado, parse_mode="Markdown")
+    except Exception:
+        # Si Telegram falla por un error de negrita/enlace, envía el texto plano
+        await bot.send_message(chat_id=chat_id, text=texto_cortado)
 
 # --- MENÚ PRINCIPAL ---
 def menu_principal():
@@ -187,7 +196,7 @@ async def responder_admin(msg: Message):
                 {"role": "user", "content": msg.text}
             ]
         )
-        await msg.answer(response.choices[0].message.content[:4000], parse_mode="Markdown")
+        await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
         await msg.answer(f"Error: {e}")
 
@@ -210,7 +219,7 @@ async def procesar_texto_general(msg: Message, state: FSMContext):
                 {"role": "user", "content": msg.text}
             ]
         )
-        await msg.answer(response.choices[0].message.content[:4000], parse_mode="Markdown")
+        await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
         await msg.answer("Error con la IA. Intenta de nuevo.")
 
@@ -245,7 +254,7 @@ async def procesar_pdf(msg: Message):
                 {"role": "user", "content": texto[:3000]}
             ]
         )
-        await msg.answer(response.choices[0].message.content[:4000], parse_mode="Markdown")
+        await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
         await msg.answer(f"Error al procesar el PDF.")
 
@@ -273,10 +282,10 @@ async def responder_entrevista(msg: Message, state: FSMContext):
         historial.append({"role": "assistant", "content": respuesta_ia})
         
         if pregunta_num >= 5:
-            await msg.answer(f"{respuesta_ia[:4000]}\n\n✅ **Fin de la simulación.** ¡Buen trabajo!", parse_mode="Markdown")
+            await enviar_mensaje_seguro(msg.chat.id, f"{respuesta_ia}\n\n✅ **Fin de la simulación.** ¡Buen trabajo!")
             await state.clear()
         else:
-            await msg.answer(respuesta_ia[:4000], parse_mode="Markdown")
+            await enviar_mensaje_seguro(msg.chat.id, respuesta_ia)
             await state.update_data(pregunta_num=pregunta_num + 1, historial=historial)
     except Exception as e:
         await msg.answer("Error en la entrevista.")
@@ -304,9 +313,8 @@ async def pago_exitoso(msg: Message):
     usuarios[uid]["usos_gratis"] = 9999
     await msg.answer("¡Pago recibido! 🎉 Ya eres **Premium**. Tienes acceso ilimitado a todas las herramientas.", reply_markup=menu_principal(), parse_mode="Markdown")
 
-# --- FUNCIÓN PRINCIPAL (SIN DUPLICADOS Y LIMPIA) ---
+# --- FUNCIÓN PRINCIPAL ---
 async def main():
-    # Limpia cualquier conexión fantasma en los servidores de Telegram
     await bot.delete_webhook(drop_pending_updates=True) 
     print("✅ Súper Bot encendido y listo para operar...")
     await dp.start_polling(bot)
