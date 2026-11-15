@@ -335,29 +335,53 @@ async def manejar_audio(msg: Message, state: FSMContext):
     except Exception as e:
         await msg.answer(f"❌ Error audio: {e}")
 
+# --- BUSCADOR DE EMPLEOS CON TRADUCCIÓN ---
 async def buscar_empleos(msg: Message, state: FSMContext):
     pais = msg.text.lower()
     datos = await state.get_data()
-    palabra = datos.get("busqueda", "").lower()
+    palabra_original = datos.get("busqueda", "").lower()
     await state.clear()
-    await msg.answer(f"🔎 Buscando **{palabra}**...")
+    
+    await msg.answer(f"🔎 Buscando **{palabra_original}**...", parse_mode="Markdown")
+    
+    # 1. TRADUCIR LA PALABRA AL INGLÉS CON LA IA
+    palabra = palabra_original
+    try:
+        res_trad = await client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": "Translate the following job title or keyword to English. Respond ONLY with the translated word or words in lowercase, no punctuation, no extra text, no quotes."}, 
+                {"role": "user", "content": palabra_original}
+            ]
+        )
+        palabra = res_trad.choices[0].message.content.strip().lower()
+        # Limpiar comillas o puntos que la IA pueda añadir
+        palabra = palabra.replace('"', '').replace("'", "").replace(".", "")
+    except:
+        pass # Si falla la traducción, usa la palabra original
+
     enc = 0
     try:
         async with httpx.AsyncClient() as client_http:
+            # Buscar con la palabra traducida
             res_j = await client_http.get(f"https://jobicy.com/api/v2/remote-jobs?count=10&tag={palabra}")
             if res_j.status_code == 200:
                 for job in res_j.json().get("jobs", []):
                     if palabra in str(job.get('jobTitle','')).lower() or palabra in str(job.get('jobExcerpt','')).lower():
                         await msg.answer(f"💼 **{job['jobTitle']}**\n🏢 {job['companyName']}\n🔗 [Aplicar]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
                         enc += 1
+            
             res_r = await client_http.get(f"https://remotive.com/api/remote-jobs?limit=10&search={palabra}")
             if res_r.status_code == 200:
                 for job in res_r.json().get("jobs", []):
                     if palabra in str(job.get('title','')).lower():
                         await msg.answer(f"💼 **{job['title']}**\n🏢 {job['company_name']}\n🔗 [Aplicar]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
                         enc += 1
-        if enc == 0: await msg.answer("😔 Sin resultados exactos. Prueba en inglés.")
-    except: await msg.answer("❌ Error buscador.")
+                        
+        if enc == 0: 
+            await msg.answer(f"😔 Sin resultados exactos para '{palabra}' (traducido del español). Prueba con otra palabra.")
+    except: 
+        await msg.answer("❌ Error buscador.")
 
 async def cobrar_herramienta_individual(uid, herramienta):
     titulos = {"cv": "CV", "carta": "Carta", "entrevista": "Entrevista", "estafa": "Estafas", "cold_email": "Cold Email", "linkedin": "LinkedIn", "pdf": "CV en PDF", "adaptar": "Adaptar CV"}
@@ -446,14 +470,12 @@ async def responder_entrevista(msg: Message, state: FSMContext):
             await state.update_data(pregunta_num=num + 1, historial=hist)
     except: await msg.answer("Error.")
 
-# --- INICIALIZACIÓN (CON TIMEOUT PARA EVITAR CONGELAMIENTO) ---
+# --- INICIALIZACIÓN ---
 async def main():
     global db_pool
-    
     while True:
         try:
             print("🔄 Intentando conectar a PostgreSQL...", flush=True)
-            # Añadimos un timeout de 15 segundos para que no se quede colgado para siempre
             db_pool = await asyncpg.create_pool(DATABASE_URL, timeout=15)
             
             async with db_pool.acquire() as conn:
