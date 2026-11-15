@@ -8,13 +8,13 @@ from flask import Flask
 from pypdf import PdfReader
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from groq import AsyncGroq
 
 # ==========================================
-# CONFIGURACIÓN Y LLAVES (Se leen de Render)
+# CONFIGURACIÓN Y LLAVES
 # ==========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -25,9 +25,9 @@ dp = Dispatcher()
 client = AsyncGroq(api_key=GROQ_API_KEY)
 
 # ==========================================
-# 🚨 PON TU ID DE TELEGRAM AQUÍ (Sin comillas)
+# 🚨 PON TU ID DE TELEGRAM AQUÍ
 # ==========================================
-ADMIN_ID = 6643605796 
+ADMIN_ID = 6643605796
 
 # --- SERVIDOR FALSO PARA RENDER ---
 app = Flask(__name__)
@@ -40,7 +40,6 @@ def keep_alive():
     t = threading.Thread(target=run_flask)
     t.start()
 
-# Variable global para la base de datos
 db_pool = None
 
 # --- ESTADOS ---
@@ -55,7 +54,7 @@ class BuscadorEmpleo(StatesGroup):
 class AdminChat(StatesGroup):
     en_progreso = State()
 
-# --- 🛡️ FUNCIÓN MAESTRA PARA ENVIAR MENSAJES ---
+# --- FUNCIÓN MAESTRA PARA ENVIAR MENSAJES ---
 async def enviar_mensaje_seguro(chat_id, texto):
     texto_cortado = texto[:4000]
     try:
@@ -63,21 +62,22 @@ async def enviar_mensaje_seguro(chat_id, texto):
     except Exception:
         await bot.send_message(chat_id=chat_id, text=texto_cortado)
 
-# --- MENÚ PRINCIPAL ---
+# --- MENÚ PRINCIPAL (Con botón de referidos) ---
 def menu_principal():
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📄 Analizar mi CV (Valor: $5)", callback_data="menu_cv")],
         [InlineKeyboardButton(text="✉️ Carta de Presentación (Valor: $5)", callback_data="menu_carta")],
         [InlineKeyboardButton(text="🎤 Simulador de Entrevista (Valor: $10)", callback_data="menu_entrevista")],
         [InlineKeyboardButton(text="💼 Buscar Empleos (Valor: $5)", callback_data="menu_empleos")],
+        [InlineKeyboardButton(text="🎁 Invitar Amigos (Ganar Usos)", callback_data="menu_referido")],
         [InlineKeyboardButton(text="⭐ Obtener TODO por 300 Stars", callback_data="menu_premium")]
     ])
     return kb
 
-@dp.message(CommandStart())
+# --- INICIO NORMAL ---
+@dp.message(CommandStart(deep_link=False))
 async def start(msg: Message):
     uid = msg.from_user.id
-    
     async with db_pool.acquire() as conn:
         usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
         if not usuario:
@@ -85,8 +85,41 @@ async def start(msg: Message):
     
     texto = (
         "¡Hola! 💼 Soy tu **Asistente de Carrera Profesional con IA**.\n\n"
-        "Selecciona una opción del menú. Tienes **2 usos gratuitos** para probar.\n"
+        "Puedes escribirme o enviarme una **nota de voz**. Tienes usos gratuitos.\n"
         "*(Nota: Usar estas herramientas con profesionales cuesta más de $25. Aquí puedes tenerlas todas por menos de $4).*"
+    )
+    await msg.answer(texto, reply_markup=menu_principal(), parse_mode="Markdown")
+
+# --- INICIO CON ENLACE DE REFERIDO ---
+@dp.message(CommandStart(deep_link=True))
+async def start_with_ref(msg: Message, command: CommandObject):
+    uid = msg.from_user.id
+    referrer_id = None
+    
+    try:
+        referrer_id = int(command.args)
+    except:
+        pass
+
+    async with db_pool.acquire() as conn:
+        usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
+        
+        if not usuario:
+            # Crear el nuevo usuario
+            await conn.execute("INSERT INTO usuarios (user_id, pago_activo, usos_gratis) VALUES ($1, $2, $3)", uid, False, 2)
+            
+            # Si viene de un referido y no es él mismo, le damos +3 usos al que invitó
+            if referrer_id and referrer_id != uid:
+                await conn.execute("UPDATE usuarios SET usos_gratis = usos_gratis + 3 WHERE user_id = $1", referrer_id)
+                try:
+                    await bot.send_message(referrer_id, "🎉 ¡Alguien se ha unido con tu enlace! Has ganado **+3 usos gratis**.", parse_mode="Markdown")
+                except:
+                    pass # Si el que invitó bloqueó el bot
+
+    texto = (
+        "¡Hola! 💼 Soy tu **Asistente de Carrera Profesional con IA**.\n\n"
+        "Has entrado con una invitación. ¡Disfruta tus usos gratis!\n"
+        "Escribe o envía una nota de voz para empezar."
     )
     await msg.answer(texto, reply_markup=menu_principal(), parse_mode="Markdown")
 
@@ -95,33 +128,41 @@ async def start(msg: Message):
 async def manejar_menu(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     accion = callback.data.split("_")[1]
+    uid = callback.from_user.id
 
     if accion == "cv":
-        await callback.message.answer("📄 Envíame el **texto de tu CV** y te daré consejos de un experto para mejorarlo.")
+        await callback.message.answer("📄 Envíame el **texto de tu CV** o una **nota de voz** explicándome tu perfil.")
     elif accion == "carta":
-        await callback.message.answer("✉️ Envíame la **oferta de trabajo** (el texto) y te escribiré una carta de presentación persuasiva.")
+        await callback.message.answer("✉️ Envíame la **oferta de trabajo** (texto o audio) y te escribiré una carta de presentación.")
     elif accion == "entrevista":
         await callback.message.answer("🎤 ¿Para qué puesto quieres que te entreviste? (Ej: Desarrollador Web, Gerente de Ventas)")
         await state.set_state(Entrevista.esperando_puesto)
     elif accion == "empleos":
         await callback.message.answer("💼 ¿Qué tipo de empleo buscas? (Ej: Programador, Marketing, Soporte)\n\nEscribe la palabra clave:")
         await state.set_state(BuscadorEmpleo.esperando_palabra)
+    elif accion == "referido":
+        bot_info = await bot.get_me()
+        link = f"https://t.me/{bot_info.username}?start={uid}"
+        texto_ref = (
+            "🎁 **Gana usos gratis invitando a tus amigos**\n\n"
+            "Por cada amigo que se una usando tu enlace, **ganarás +3 usos gratis**.\n\n"
+            f"Tu enlace único es:\n`{link}`\n\n"
+            "¡Copia y compártelo en tus grupos de WhatsApp o redes sociales!"
+        )
+        await callback.message.answer(texto_ref, parse_mode="Markdown")
     elif accion == "premium":
-        await cobrar_usuario(callback.from_user.id)
+        await cobrar_usuario(uid)
 
-# --- 🛡️ VERIFICACIÓN DE USOS CON BASE DE DATOS ---
+# --- FUNCIÓN DE VERIFICACIÓN DE USOS ---
 async def verificar_uso(message: Message):
     uid = message.from_user.id
-    
     async with db_pool.acquire() as conn:
         usuario = await conn.fetchrow("SELECT * FROM usuarios WHERE user_id = $1", uid)
-        
         if not usuario:
             await conn.execute("INSERT INTO usuarios (user_id, pago_activo, usos_gratis) VALUES ($1, $2, $3)", uid, False, 2)
             return True
 
-        if usuario['pago_activo']:
-            return True
+        if usuario['pago_activo']: return True
         
         if usuario['usos_gratis'] > 0:
             nuevos_usos = usuario['usos_gratis'] - 1
@@ -131,6 +172,33 @@ async def verificar_uso(message: Message):
         else:
             await cobrar_usuario(uid)
             return False
+
+# --- 🎙️ RECONOCIMIENTO DE VOZ ---
+@dp.message(F.voice)
+async def procesar_audio(msg: Message, state: FSMContext):
+    if not await verificar_uso(msg): return
+    
+    await msg.answer("🎤 Escuchando tu audio y transcribiendo...")
+    
+    try:
+        # Descargar el audio
+        file = await bot.get_file(msg.voice.file_id)
+        file_bytes = await bot.download_file(file.file_path)
+        
+        # Transcribir con Groq Whisper
+        transcription = await client.audio.transcriptions.create(
+            file=("audio.ogg", file_bytes.read()),
+            model="whisper-large-v3",
+        )
+        
+        texto_transcrito = transcription.text
+        await msg.answer(f"🗣️ *He entendido:* {texto_transcrito}\n\nProcesando con IA...", parse_mode="Markdown")
+        
+        # Procesar el texto como si lo hubiera escrito
+        await procesar_con_ia(msg, texto_transcrito, state)
+        
+    except Exception as e:
+        await msg.answer(f"❌ Error al procesar el audio: {e}")
 
 # --- BUSCADOR DE EMPLEOS ---
 @dp.message(BuscadorEmpleo.esperando_palabra)
@@ -155,9 +223,8 @@ async def buscar_empleos_filtrados(msg: Message, state: FSMContext):
         async with httpx.AsyncClient() as http_client:
             response = await http_client.get(f"https://remotive.com/api/remote-jobs?limit=30&search={palabra}")
             data = response.json()
-            
             if not data.get("jobs"):
-                await msg.answer("No encontré ofertas para esa palabra. Intenta con otra.")
+                await msg.answer("No encontré ofertas para esa palabra.")
                 return
                 
             empleos_encontrados = 0
@@ -179,7 +246,7 @@ async def buscar_empleos_filtrados(msg: Message, state: FSMContext):
 async def activar_modo_dios(msg: Message, state: FSMContext):
     if msg.from_user.id == ADMIN_ID:
         await state.set_state(AdminChat.en_progreso)
-        await msg.answer("👑 **MODO DIOS ACTIVADO.**\n\nPregúntame lo que quieras. Para salir, escribe `/salir`.")
+        await msg.answer("👑 **MODO DIOS ACTIVADO.**\n\nPregúntame lo que quieras (texto o audio). Para salir, escribe `/salir`.")
     else:
         await msg.answer("No tienes permiso.")
 
@@ -192,17 +259,9 @@ async def salir_modo_dios(msg: Message, state: FSMContext):
 @dp.message(AdminChat.en_progreso)
 async def responder_admin(msg: Message):
     if msg.from_user.id != ADMIN_ID: return
-    await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
-    try:
-        response = await client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[{"role": "system", "content": "Estás hablando con el creador. Responde técnico y directo."}, {"role": "user", "content": msg.text}]
-        )
-        await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
-    except Exception as e:
-        await msg.answer(f"Error: {e}")
+    await procesar_con_ia(msg, msg.text, None)
 
-# --- LÓGICA DE TEXTO ---
+# --- LÓGICA DE TEXTO (CV Y CARTAS) ---
 @dp.message(F.text & ~F.text.startswith("/"))
 async def procesar_texto_general(msg: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -211,11 +270,21 @@ async def procesar_texto_general(msg: Message, state: FSMContext):
         return
 
     if not await verificar_uso(msg): return
+    await procesar_con_ia(msg, msg.text, state)
+
+# --- FUNCIÓN CENTRAL DE IA (Para texto y audios) ---
+async def procesar_con_ia(msg: Message, texto: str, state: FSMContext):
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     try:
+        # Si es el admin en Modo Dios
+        if state is None or (msg.from_user.id == ADMIN_ID and state and await state.get_state() == AdminChat.en_progreso.state):
+            prompt = "Estás hablando con el creador. Responde técnico y directo."
+        else:
+            prompt = "Eres experto en RRHH. Analiza el CV o escribe una carta de presentación. Conciso."
+
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[{"role": "system", "content": "Eres experto en RRHH. Analiza el CV o escribe una carta de presentación. Conciso."}, {"role": "user", "content": msg.text}]
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": texto}]
         )
         await enviar_mensaje_seguro(msg.chat.id, response.choices[0].message.content)
     except Exception as e:
@@ -287,22 +356,30 @@ async def pago_exitoso(msg: Message):
         await conn.execute("UPDATE usuarios SET pago_activo = TRUE WHERE user_id = $1", uid)
     await msg.answer("¡Pago recibido! 🎉 Ya eres Premium.", reply_markup=menu_principal())
 
-# --- PRINCIPAL ---
+# --- PRINCIPAL BLINDADO ---
 async def main():
     global db_pool
-    print("Conectando a PostgreSQL...")
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
-    async with db_pool.acquire() as conn:
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS usuarios (
-                user_id BIGINT PRIMARY KEY,
-                pago_activo BOOLEAN DEFAULT FALSE,
-                usos_gratis INTEGER DEFAULT 2
-            )
-        ''')
-    print("DB conectada. Tabla lista.")
+    print("Iniciando bot...")
+    while True:
+        try:
+            print("Intentando conectar a PostgreSQL...")
+            db_pool = await asyncpg.create_pool(DATABASE_URL)
+            async with db_pool.acquire() as conn:
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS usuarios (
+                        user_id BIGINT PRIMARY KEY,
+                        pago_activo BOOLEAN DEFAULT FALSE,
+                        usos_gratis INTEGER DEFAULT 2
+                    )
+                ''')
+            print("✅ DB conectada. Tabla lista.")
+            break
+        except Exception as e:
+            print(f"❌ Error conectando a la DB: {e}. Reintentando en 5 segundos...")
+            await asyncio.sleep(5)
+
     await bot.delete_webhook(drop_pending_updates=True) 
-    print("✅ Bot encendido...")
+    print("✅ Súper Bot encendido...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
