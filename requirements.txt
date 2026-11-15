@@ -4,3 +4,4 @@ flask
 pypdf
 httpx
 asyncpg
+apscheduler
