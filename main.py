@@ -153,7 +153,6 @@ async def manejar_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("🔍 ¿Qué tipo de empleo buscas? (Ej: Programador, Ventas, Diseño)")
         await state.set_state(BuscadorEmpleo.esperando_palabra)
     elif accion == "vip":
-        bot_info = await bot.get_me()
         await cobrar_alerta_vip(uid)
     elif accion == "pro":
         await cobrar_pro(uid)
@@ -171,16 +170,13 @@ async def verificar_uso(message: Message, herramienta: str):
             await conn.execute("INSERT INTO usuarios (user_id, usos_gratis) VALUES ($1, $2)", uid, 2)
             return True
 
-        # 1. Revisar si tiene Pase PRO activo
         if usuario['pro_expira'] and usuario['pro_expira'] > datetime.now():
             return True
         
-        # 2. Revisar si compró esta herramienta individual
         columna = f"pago_{herramienta}"
         if columna in usuario.keys() and usuario[columna]:
             return True
 
-        # 3. Usar pase gratis
         if usuario['usos_gratis'] > 0:
             nuevos_usos = usuario['usos_gratis'] - 1
             await conn.execute("UPDATE usuarios SET usos_gratis = $1 WHERE user_id = $2", nuevos_usos, uid)
@@ -190,7 +186,7 @@ async def verificar_uso(message: Message, herramienta: str):
             await cobrar_herramienta_individual(uid, herramienta)
             return False
 
-# --- PROCESAMIENTO DE IA (TODAS LAS HERRAMIENTAS) ---
+# --- PROCESAMIENTO DE IA ---
 async def procesar_con_ia(msg: Message, texto: str, herramienta: str):
     await bot.send_chat_action(chat_id=msg.chat.id, action="typing")
     try:
@@ -220,7 +216,6 @@ async def manejar_texto(msg: Message, state: FSMContext):
         if msg.from_user.id == ADMIN_ID: await procesar_con_ia(msg, msg.text, "admin")
         return
 
-    # Mapeo de estados a herramientas
     mapeo = {
         Herramientas.esperando_cv.state: "cv",
         Herramientas.esperando_carta.state: "carta",
@@ -249,18 +244,16 @@ async def manejar_texto(msg: Message, state: FSMContext):
         await guardar_alerta_vip(msg, state)
         return
 
-    # Si viene de un botón de herramienta
     if current_state in mapeo:
         herramienta = mapeo[current_state]
         await state.clear()
         if not await verificar_uso(msg, herramienta): return
         await procesar_con_ia(msg, msg.text, herramienta)
     else:
-        # Si escribe algo random sin pulsar botón, asumimos que es un CV
         if not await verificar_uso(msg, "cv"): return
         await procesar_con_ia(msg, msg.text, "cv")
 
-# --- AUDIOS (Usa el mismo mapeo que el texto) ---
+# --- AUDIOS ---
 @dp.message(F.voice)
 async def manejar_audio(msg: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -284,33 +277,40 @@ async def manejar_audio(msg: Message, state: FSMContext):
     except Exception as e:
         await msg.answer(f"❌ Error al procesar el audio: {e}")
 
-# --- BUSCADOR DE EMPLEOS GRATIS ---
+# --- BUSCADOR DE EMPLEOS CON FILTRO ESTRICTO ---
 async def buscar_empleos(msg: Message, state: FSMContext):
     pais = msg.text.lower()
     datos = await state.get_data()
-    palabra = datos.get("busqueda", "")
+    palabra = datos.get("busqueda", "").lower()
     await state.clear()
     
-    await msg.answer(f"🔎 Buscando ofertas de **{palabra}** en {msg.text}...", parse_mode="Markdown")
+    await msg.answer(f"🔎 Buscando ofertas de **{palabra}** en {msg.text}...\n*(Nota: Nuestra base de datos actual es de empleos remotos/digitales).*", parse_mode="Markdown")
     empleos_encontrados = 0
+
     try:
         async with httpx.AsyncClient() as http_client:
             # Jobicy
-            res_jobicy = await http_client.get(f"https://jobicy.com/api/v2/remote-jobs?count=4&tag={palabra}")
+            res_jobicy = await http_client.get(f"https://jobicy.com/api/v2/remote-jobs?count=10&tag={palabra}")
             if res_jobicy.status_code == 200:
                 for job in res_jobicy.json().get("jobs", []):
-                    await msg.answer(f"💼 **{job['jobTitle']}**\n🏢 {job['companyName']}\n📍 Remoto\n🔗 [Aplicar aquí]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
-                    empleos_encontrados += 1
+                    titulo = str(job.get('jobTitle', '')).lower()
+                    desc = str(job.get('jobExcerpt', '')).lower()
+                    if palabra in titulo or palabra in desc:
+                        await msg.answer(f"💼 **{job['jobTitle']}**\n🏢 {job['companyName']}\n📍 Remoto\n🔗 [Aplicar aquí]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
+                        empleos_encontrados += 1
             
             # Remotive
-            res_remotive = await http_client.get(f"https://remotive.com/api/remote-jobs?limit=4&search={palabra}")
+            res_remotive = await http_client.get(f"https://remotive.com/api/remote-jobs?limit=10&search={palabra}")
             if res_remotive.status_code == 200:
                 for job in res_remotive.json().get("jobs", []):
-                    await msg.answer(f"💼 **{job['title']}**\n🏢 {job['company_name']}\n📍 {job['candidate_required_location']}\n🔗 [Aplicar aquí]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
-                    empleos_encontrados += 1
+                    titulo = str(job.get('title', '')).lower()
+                    if palabra in titulo:
+                        await msg.answer(f"💼 **{job['title']}**\n🏢 {job['company_name']}\n📍 {job['candidate_required_location']}\n🔗 [Aplicar aquí]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
+                        empleos_encontrados += 1
 
         if empleos_encontrados == 0:
-            await msg.answer(f"😔 No encontré ofertas para esa palabra. Prueba en inglés (ej. 'developer').")
+            await msg.answer(f"😔 No encontré ofertas exactas para **{palabra}**.\n\n💡 *Consejo: Busca en inglés y para puestos digitales (Ej: 'developer', 'marketing', 'support', 'sales').*")
+            
     except Exception as e:
         await msg.answer(f"❌ Error al buscar empleos.")
 
@@ -342,13 +342,13 @@ async def pago_exitoso(msg: Message):
             await msg.answer("🎉 ¡Felicidades! Eres usuario **PASE PRO**. Tienes acceso total por 2 meses.", reply_markup=menu_principal())
         elif payload == "vip_1month":
             await msg.answer("🎉 ¡Cazador VIP Activado!\n\nAhora dime, ¿Qué puesto buscas? (Ej: Programador)")
-            # (Aquí el bot pasaría al estado AlertaVIP.esperando_puesto)
+            await bot.set_state(uid, AlertaVIP.esperando_puesto)
         elif payload.startswith("buy_"):
             herramienta = payload.replace("buy_", "")
             await conn.execute(f"UPDATE usuarios SET pago_{herramienta} = TRUE WHERE user_id = $1", uid)
             await msg.answer(f"🎉 Has desbloqueado esta herramienta con éxito.", reply_markup=menu_principal())
 
-# --- CAZADOR VIP: LÓGICA DE ALERTAS DIARIAS ---
+# --- CAZADOR VIP ---
 async def guardar_alerta_vip(msg: Message, state: FSMContext):
     ubicacion = msg.text
     datos = await state.get_data()
@@ -359,14 +359,12 @@ async def guardar_alerta_vip(msg: Message, state: FSMContext):
     async with db_pool.acquire() as conn:
         await conn.execute("UPDATE usuarios SET alerta_puesto = $1, alerta_ubicacion = $2 WHERE user_id = $3", puesto, ubicacion, uid)
     
-    await msg.answer(f"✅ Alerta configurada. Todos los días te enviaré ofertas de **{puesto}** en **{ubicacion}**.")
+    await msg.answer(f"✅ Alerta configurada. Todos los días te enviaré ofertas de **{puesto}**.")
 
-# --- TAREA DIARIA (SE EJECUTA CADA 24 HORAS) ---
 async def enviar_alertas_diarias():
     print("⏰ Ejecutando envío de alertas diarias...")
     async with db_pool.acquire() as conn:
-        usuarios_vip = await conn.fetch("SELECT user_id, alerta_puesto, alerta_ubicacion FROM usuarios WHERE alerta_puesto IS NOT NULL")
-        
+        usuarios_vip = await conn.fetch("SELECT user_id, alerta_puesto FROM usuarios WHERE alerta_puesto IS NOT NULL")
         for u in usuarios_vip:
             uid = u['user_id']
             puesto = u['alerta_puesto']
@@ -379,10 +377,9 @@ async def enviar_alertas_diarias():
                             await bot.send_message(uid, f"🔔 **Ofertas nuevas para ti ({puesto}):**", parse_mode="Markdown")
                             for job in jobs:
                                 await bot.send_message(uid, f"💼 **{job['jobTitle']}**\n🏢 {job['companyName']}\n🔗 [Aplicar aquí]({job['url']})", parse_mode="Markdown", disable_web_page_preview=True)
-            except:
-                pass
+            except: pass
 
-# --- MODO DIOS (ADMIN) ---
+# --- MODO DIOS Y ENTREVISTA ---
 @dp.message(Command("modo_admin"))
 async def activar_modo_dios(msg: Message, state: FSMContext):
     if msg.from_user.id == ADMIN_ID:
@@ -396,7 +393,6 @@ async def salir_modo_dios(msg: Message, state: FSMContext):
         await state.clear()
         await msg.answer("Saliendo del Modo Dios.", reply_markup=menu_principal())
 
-# --- SIMULADOR DE ENTREVISTA ---
 @dp.message(Entrevista.esperando_puesto)
 async def iniciar_entrevista(msg: Message, state: FSMContext):
     if not await verificar_uso(msg, "entrevista"): return
@@ -421,8 +417,7 @@ async def responder_entrevista(msg: Message, state: FSMContext):
         else:
             await enviar_mensaje_seguro(msg.chat.id, respuesta_ia)
             await state.update_data(pregunta_num=pregunta_num + 1, historial=historial)
-    except Exception as e:
-        await msg.answer("Error.")
+    except Exception as e: await msg.answer("Error.")
 
 # --- INICIALIZACIÓN ---
 async def main():
@@ -453,7 +448,6 @@ async def main():
             print(f"❌ Error DB: {e}. Reintentando...")
             await asyncio.sleep(5)
 
-    # Iniciar el programador de alertas diarias (Cada 24 horas)
     scheduler.add_job(enviar_alertas_diarias, 'interval', hours=24)
     scheduler.start()
 
